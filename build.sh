@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# By Fannndi & ChatGPT
+# By Fannndi & ChatGPT (Rewritten with ld.lld)
 
 set -euo pipefail
 
@@ -151,7 +151,7 @@ make_defconfig() {
         CROSS_COMPILE_ARM32=arm-linux-androideabi- \
         CC=clang HOSTCC=clang HOSTCXX=clang++ \
         CLANG_TRIPLE=aarch64-linux-gnu- \
-        LD="$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-ld.bfd" \
+        LD=ld.lld \
         LLVM=1 LLVM_IAS=1 \
         "$DEFCONFIG"
 }
@@ -161,7 +161,7 @@ compile_kernel() {
     export CROSS_COMPILE=aarch64-linux-android-
     export CROSS_COMPILE_ARM32=arm-linux-androideabi-
     export CLANG_TRIPLE=aarch64-linux-gnu-
-    export LD="$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-ld.bfd"
+    export LD=ld.lld
     JOBS=$(nproc --all)
     export MAKEFLAGS="-j$(( JOBS > 2 ? JOBS-1 : 2 )) -Oline"
 
@@ -170,6 +170,7 @@ compile_kernel() {
         CC=clang \
         HOSTCC=clang HOSTCXX=clang++ \
         LLVM=1 LLVM_IAS=1 \
+        KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
         CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
         Image.gz-dtb
 }
