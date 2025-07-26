@@ -128,3 +128,14 @@ kernel/configs/android-*.cfg
 out/
 *.old
 *.rej
+
+# Build artifacts
+AnyKernel3/
+*.zip
+log.txt
+*.img
+
+# Cache tools
+.cache/
+toolchains/
+tarballs/
