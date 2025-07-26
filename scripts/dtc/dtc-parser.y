@@ -20,9 +20,18 @@
 %{
 #include <stdio.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #include "dtc.h"
 #include "srcpos.h"
+
+#define YYLTYPE_IS_DECLARED 1
+typedef struct YYLTYPE {
+  int first_line;
+  int first_column;
+  int last_line;
+  int last_column;
+} YYLTYPE;
 
 extern int yylex(void);
 extern void yyerror(char const *s);
