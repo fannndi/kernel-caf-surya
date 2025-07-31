@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 
-# By Fannndi & ChatGPT (Clang Android 15 - Final)
+# By Fannndi & ChatGPT — Final Clang Android 15 Kernel Build Script (Surya)
 set -euo pipefail
 
 # ===================== KONFIGURASI =====================
 CLANG_VER="a15"
 CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz"
+NDK_URL="https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip"
+GCC64_REPO="https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git"
+GCC32_REPO="https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git"
 
 KERNEL_NAME="${KERNEL_NAME:-MIUI-A10}"
 DEFCONFIG="${DEFCONFIG:-surya_defconfig}"
@@ -14,12 +17,10 @@ BUILD_HOST="gitpod"
 
 ARCH="arm64"
 SUBARCH="arm64"
+export ARCH SUBARCH
+
 CACHE_DIR="$HOME/.cache/kernel_build"
 CLANG_DIR="$CACHE_DIR/clang-${CLANG_VER}"
-
-GCC64_REPO="https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git"
-GCC32_REPO="https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git"
-NDK_URL="https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip"
 
 BUILD_TIME=$(date '+%d%m%Y-%H%M')
 ZIPNAME="${KERNEL_NAME}-Surya-${BUILD_TIME}.zip"
@@ -34,7 +35,7 @@ trap 'echo "[ERROR] Build failed. Check log.txt for full details."' ERR
 # ===================== HELPER =====================
 require_tools() {
     for tool in git wget tar unzip clang python3 zip; do
-        command -v $tool >/dev/null 2>&1 || { echo "❌ Tool '$tool' tidak ditemukan!"; exit 1; }
+        command -v "$tool" >/dev/null 2>&1 || { echo "❌ Tool '$tool' tidak ditemukan!"; exit 1; }
     done
 }
 
@@ -92,6 +93,8 @@ prepare_toolchains() {
     fi
 
     export PATH="$CLANG_DIR/bin:$CACHE_DIR/gcc64/bin:$CACHE_DIR/gcc32/bin:$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+    
+    echo "==> Clang in use: $(which clang)"
     clang --version || true
 }
 
@@ -120,10 +123,11 @@ clean_output() {
 
 make_defconfig() {
     echo "==> Running defconfig: $DEFCONFIG"
-    make O=out ARCH=arm64 \
+    make O=out \
         CROSS_COMPILE=aarch64-linux-android- \
         CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-        CC=clang HOSTCC=clang HOSTCXX=clang++ \
+        CC="clang --target=aarch64-linux-android" \
+        HOSTCC=clang HOSTCXX=clang++ \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         LD=ld.lld LLVM=1 LLVM_IAS=1 \
         "$DEFCONFIG"
@@ -131,13 +135,26 @@ make_defconfig() {
 
 compile_kernel() {
     echo "==> Compiling kernel..."
+    
+    export KBUILD_BUILD_USER="$BUILD_USER"
+    export KBUILD_BUILD_HOST="$BUILD_HOST"
     export CROSS_COMPILE=aarch64-linux-android-
     export CROSS_COMPILE_ARM32=arm-linux-androideabi-
     export CLANG_TRIPLE=aarch64-linux-gnu-
     export LD=ld.lld
+    export AR=llvm-ar
+    export NM=llvm-nm
+    export OBJCOPY=llvm-objcopy
+    export OBJDUMP=llvm-objdump
+    export STRIP=llvm-strip
+    export READELF=llvm-readelf
+    export OBJSIZE=llvm-size
+    export HOSTCC=clang
+    export HOSTCXX=clang++
+    export CC="clang --target=aarch64-linux-android"
     export MAKEFLAGS="-j$(nproc) -Oline"
 
-    make O=out ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++ \
+    make O=out \
         LLVM=1 LLVM_IAS=1 \
         KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
         CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
@@ -147,7 +164,13 @@ compile_kernel() {
 build_dtb_dtbo() {
     echo "==> Building DTB & DTBO..."
     cat out/arch/arm64/boot/dts/**/*.dtb > out/dtb.img
-    python3 tools/makedtboimg.py create out/dtbo.img out/arch/arm64/boot/dts/**/*.dtbo
+
+    DTBO_FILES=(out/arch/arm64/boot/dts/**/*.dtbo)
+    if [[ -e "${DTBO_FILES[0]}" ]]; then
+        python3 tools/makedtboimg.py create out/dtbo.img "${DTBO_FILES[@]}"
+    else
+        echo "⚠️  No DTBO files found, skipping dtbo.img"
+    fi
 }
 
 package_anykernel() {
@@ -156,10 +179,10 @@ package_anykernel() {
     git clone --depth=1 https://github.com/rinnsakaguchi/AnyKernel3 -b FSociety
     cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
     cp out/dtb.img AnyKernel3/
-    cp out/dtbo.img AnyKernel3/
+    [[ -f out/dtbo.img ]] && cp out/dtbo.img AnyKernel3/
     cd AnyKernel3 && zip -r9 "../${ZIPNAME}" . -x '*.git*' README.md *placeholder
     cd ..
-    echo "Package created: ${ZIPNAME}"
+    echo "✅ Package created: ${ZIPNAME}"
 }
 
 # ===================== MAIN =====================
@@ -171,4 +194,4 @@ compile_kernel
 build_dtb_dtbo
 package_anykernel
 
-echo "==> Build finished in $(( $(date +%s) - BUILD_START )) seconds."
+echo "✅ Build finished in $(( $(date +%s) - BUILD_START )) seconds."
