@@ -130,10 +130,26 @@ restore_config() {
 
 clean_output() {
     echo "==> Cleaning old build files..."
-    backup_config
-    make O=out clean || true
-    rm -rf out/dtb.img out/dtbo.img out/arch/arm64/boot/Image.gz-dtb AnyKernel3 *.zip || true
-    restore_config
+
+    if [[ -f out/.config ]]; then
+        cp out/.config .config.backup
+        echo "==> Backup .config ke .config.backup"
+    fi
+
+    if [[ -f out/Makefile ]]; then
+        make O=out proper || true
+    else
+        echo "⚠️  Skip make proper: No Makefile in out/"
+    fi
+
+    rm -f dtb.img dtbo.img
+    rm -rf AnyKernel3 *.zip
+
+    if [[ -f .config.backup ]]; then
+        mkdir -p out
+        cp .config.backup out/.config
+        echo "==> Restore .config dari .config.backup"
+    fi
 }
 
 make_defconfig() {
