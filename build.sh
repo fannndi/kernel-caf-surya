@@ -3,6 +3,17 @@
 # By Fannndi & ChatGPT — Final Clang Android 15 Kernel Build Script (Surya)
 set -euo pipefail
 
+# ===================== DETEKSI ENVIRONMENT =====================
+if [[ "${GITPOD_REPO_ROOT:-}" != "" ]]; then
+    CI_ENV="gitpod"
+elif [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    CI_ENV="github"
+else
+    CI_ENV="local"
+fi
+
+echo "==> Environment terdeteksi: $CI_ENV"
+
 # ===================== KONFIGURASI =====================
 CLANG_VER="a15"
 CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz"
@@ -12,8 +23,8 @@ GCC32_REPO="https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm
 
 KERNEL_NAME="${KERNEL_NAME:-MIUI-A10}"
 DEFCONFIG="${DEFCONFIG:-surya_defconfig}"
-BUILD_USER="fannndi"
-BUILD_HOST="gitpod"
+BUILD_USER="${BUILD_USER:-fannndi}"
+BUILD_HOST="${BUILD_HOST:-$CI_ENV}"
 
 ARCH="arm64"
 SUBARCH="arm64"
@@ -21,7 +32,6 @@ export ARCH SUBARCH
 
 CACHE_DIR="$HOME/.cache/kernel_build"
 CLANG_DIR="$CACHE_DIR/clang-${CLANG_VER}"
-
 BUILD_TIME=$(date '+%d%m%Y-%H%M')
 ZIPNAME="${KERNEL_NAME}-Surya-${BUILD_TIME}.zip"
 BUILD_START=$(date +%s)
@@ -34,9 +44,17 @@ trap 'echo "[ERROR] Build failed. Check log.txt for full details."' ERR
 
 # ===================== HELPER =====================
 require_tools() {
+    local missing=false
     for tool in git wget tar unzip clang python3 zip; do
-        command -v "$tool" >/dev/null 2>&1 || { echo "❌ Tool '$tool' tidak ditemukan!"; exit 1; }
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "❌ Tool '$tool' tidak ditemukan!"
+            missing=true
+        fi
     done
+    if [[ "$missing" == "true" ]]; then
+        echo "Silakan install tool yang belum ada terlebih dahulu."
+        exit 1
+    fi
 }
 
 download_clang() {
@@ -99,10 +117,7 @@ prepare_toolchains() {
 }
 
 backup_config() {
-    if [[ -f out/.config ]]; then
-        cp out/.config .config.backup
-        echo "==> Backup .config ke .config.backup"
-    fi
+    [[ -f out/.config ]] && cp out/.config .config.backup && echo "==> Backup .config ke .config.backup"
 }
 
 restore_config() {
@@ -126,8 +141,6 @@ make_defconfig() {
     make O=out \
         CROSS_COMPILE=aarch64-linux-android- \
         CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-        CC="clang --target=aarch64-linux-android" \
-        HOSTCC=clang HOSTCXX=clang++ \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         LD=ld.lld LLVM=1 LLVM_IAS=1 \
         "$DEFCONFIG"
@@ -135,29 +148,22 @@ make_defconfig() {
 
 compile_kernel() {
     echo "==> Compiling kernel..."
-    
-    export KBUILD_BUILD_USER="$BUILD_USER"
-    export KBUILD_BUILD_HOST="$BUILD_HOST"
-    export CROSS_COMPILE=aarch64-linux-android-
-    export CROSS_COMPILE_ARM32=arm-linux-androideabi-
-    export CLANG_TRIPLE=aarch64-linux-gnu-
-    export LD=ld.lld
-    export AR=llvm-ar
-    export NM=llvm-nm
-    export OBJCOPY=llvm-objcopy
-    export OBJDUMP=llvm-objdump
-    export STRIP=llvm-strip
-    export READELF=llvm-readelf
-    export OBJSIZE=llvm-size
-    export HOSTCC=clang
-    export HOSTCXX=clang++
-    export CC="clang --target=aarch64-linux-android"
-    export MAKEFLAGS="-j$(nproc) -Oline"
-
     make O=out \
+        ARCH=arm64 \
+        SUBARCH=arm64 \
+        CC=clang \
+        HOSTCC=clang HOSTCXX=clang++ \
+        CROSS_COMPILE=aarch64-linux-android- \
+        CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        LD=ld.lld AR=llvm-ar NM=llvm-nm \
+        OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump \
+        STRIP=llvm-strip READELF=llvm-readelf OBJSIZE=llvm-size \
         LLVM=1 LLVM_IAS=1 \
         KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
         CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
+        KBUILD_BUILD_USER="$BUILD_USER" \
+        KBUILD_BUILD_HOST="$BUILD_HOST" \
         Image.gz-dtb
 }
 
