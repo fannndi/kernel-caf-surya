@@ -111,50 +111,35 @@ prepare_toolchains() {
     fi
 
     export PATH="$CLANG_DIR/bin:$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$CACHE_DIR/gcc64/bin:$CACHE_DIR/gcc32/bin:$PATH"
-
     export CROSS_COMPILE=aarch64-linux-android-
     export CROSS_COMPILE_ARM32=arm-linux-androideabi-
     export CLANG_TRIPLE=aarch64-linux-gnu-
-    export AS=${CROSS_COMPILE}as
+
+    # Gunakan binutils dari NDK r21e
+    BINUTILS="$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+    export AS=${BINUTILS}aarch64-linux-android-as
+    export LD=${BINUTILS}aarch64-linux-android-ld
+    export AR=${BINUTILS}aarch64-linux-android-ar
+    export NM=${BINUTILS}aarch64-linux-android-nm
+    export OBJCOPY=${BINUTILS}aarch64-linux-android-objcopy
+    export OBJDUMP=${BINUTILS}aarch64-linux-android-objdump
+    export STRIP=${BINUTILS}aarch64-linux-android-strip
 
     echo "==> Clang in use: $(which clang)"
     clang --version || true
 }
 
-backup_config() {
-    [[ -f out/.config ]] && cp out/.config .config.backup && echo "==> Backup .config ke .config.backup"
-}
-
-restore_config() {
-    if [[ ! -f out/.config && -f .config.backup ]]; then
-        echo "==> Mengembalikan .config dari backup"
-        mkdir -p out
-        cp .config.backup out/.config
-    fi
-}
-
 clean_output() {
     echo "==> Cleaning old build files..."
+    mkdir -p out
+    [[ -f out/.config ]] && cp out/.config .config.backup && echo "==> Backup .config ke .config.backup"
 
-    if [[ -f out/.config ]]; then
-        cp out/.config .config.backup
-        echo "==> Backup .config ke .config.backup"
-    fi
-
-    if [[ -f out/Makefile ]]; then
-        make O=out proper || true
-    else
-        echo "⚠️  Skip make proper: No Makefile in out/"
-    fi
+    make O=out mrproper || true
 
     rm -f dtb.img dtbo.img
     rm -rf AnyKernel3 *.zip
 
-    if [[ -f .config.backup ]]; then
-        mkdir -p out
-        cp .config.backup out/.config
-        echo "==> Restore .config dari .config.backup"
-    fi
+    [[ -f .config.backup ]] && cp .config.backup out/.config && echo "==> Restore .config dari .config.backup"
 }
 
 make_defconfig() {
@@ -164,29 +149,38 @@ make_defconfig() {
 
 compile_kernel() {
     echo "==> Compiling kernel..."
-    make O=out \
+    make -j$(nproc) O=out \
         CC=clang \
         HOSTCC=clang HOSTCXX=clang++ \
-        LD=ld.lld AR=llvm-ar NM=llvm-nm \
-        OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump \
-        STRIP=llvm-strip READELF=llvm-readelf OBJSIZE=llvm-size \
+        LD="$LD" AR="$AR" NM="$NM" \
+        OBJCOPY="$OBJCOPY" OBJDUMP="$OBJDUMP" \
+        STRIP="$STRIP" READELF=llvm-readelf OBJSIZE=llvm-size \
         LLVM=1 LLVM_IAS=1 \
         KBUILD_BUILD_USER="$BUILD_USER" \
         KBUILD_BUILD_HOST="$BUILD_HOST" \
         KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
         CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
         Image.gz-dtb
+
+    [[ -f out/arch/arm64/boot/Image.gz-dtb ]] || {
+        echo "❌ Build gagal: Image.gz-dtb tidak ditemukan"
+        exit 1
+    }
 }
 
 build_dtb_dtbo() {
     echo "==> Building DTB & DTBO..."
-    cat out/arch/arm64/boot/dts/**/*.dtb > out/dtb.img
+    find out/arch/arm64/boot/dts -type f -name '*.dtb' -exec cat {} + > out/dtb.img
 
-    DTBO_FILES=(out/arch/arm64/boot/dts/**/*.dtbo)
-    if [[ -e "${DTBO_FILES[0]}" ]]; then
-        python3 tools/makedtboimg.py create out/dtbo.img "${DTBO_FILES[@]}"
+    if [[ -x tools/makedtboimg.py ]]; then
+        DTBO_FILES=$(find out/arch/arm64/boot/dts -type f -name '*.dtbo')
+        if [[ -n "$DTBO_FILES" ]]; then
+            python3 tools/makedtboimg.py create out/dtbo.img $DTBO_FILES
+        else
+            echo "⚠️  No DTBO files found, skipping dtbo.img"
+        fi
     else
-        echo "⚠️  No DTBO files found, skipping dtbo.img"
+        echo "⚠️  tools/makedtboimg.py not found or not executable, skipping dtbo.img"
     fi
 }
 
