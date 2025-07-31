@@ -110,8 +110,13 @@ prepare_toolchains() {
         echo "==> Using cached NDK"
     fi
 
-    export PATH="$CLANG_DIR/bin:$CACHE_DIR/gcc64/bin:$CACHE_DIR/gcc32/bin:$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-    
+    export PATH="$CLANG_DIR/bin:$CACHE_DIR/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$CACHE_DIR/gcc64/bin:$CACHE_DIR/gcc32/bin:$PATH"
+
+    export CROSS_COMPILE=aarch64-linux-android-
+    export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+    export CLANG_TRIPLE=aarch64-linux-gnu-
+    export AS=${CROSS_COMPILE}as
+
     echo "==> Clang in use: $(which clang)"
     clang --version || true
 }
@@ -154,32 +159,22 @@ clean_output() {
 
 make_defconfig() {
     echo "==> Running defconfig: $DEFCONFIG"
-    make O=out \
-        CROSS_COMPILE=aarch64-linux-android- \
-        CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-        CLANG_TRIPLE=aarch64-linux-gnu- \
-        LD=ld.lld LLVM=1 LLVM_IAS=1 \
-        "$DEFCONFIG"
+    make O=out "$DEFCONFIG"
 }
 
 compile_kernel() {
     echo "==> Compiling kernel..."
     make O=out \
-        ARCH=arm64 \
-        SUBARCH=arm64 \
         CC=clang \
         HOSTCC=clang HOSTCXX=clang++ \
-        CROSS_COMPILE=aarch64-linux-android- \
-        CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-        CLANG_TRIPLE=aarch64-linux-gnu- \
         LD=ld.lld AR=llvm-ar NM=llvm-nm \
         OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump \
         STRIP=llvm-strip READELF=llvm-readelf OBJSIZE=llvm-size \
         LLVM=1 LLVM_IAS=1 \
-        KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
-        CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
         KBUILD_BUILD_USER="$BUILD_USER" \
         KBUILD_BUILD_HOST="$BUILD_HOST" \
+        KCFLAGS="-gdwarf-4 -U_FORTIFY_SOURCE -D__NO_FORTIFY -fno-stack-protector" \
+        CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-variable -Wno-uninitialized" \
         Image.gz-dtb
 }
 
