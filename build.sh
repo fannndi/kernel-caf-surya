@@ -132,14 +132,30 @@ prepare_toolchains() {
 clean_output() {
     echo "==> Cleaning old build files..."
     mkdir -p out
-    [[ -f out/.config ]] && cp out/.config .config.backup && echo "==> Backup .config ke .config.backup"
 
+    # Backup .config jika ada
+    if [[ -f out/.config ]]; then
+        cp out/.config .config.backup
+        echo "==> Backup .config ke .config.backup"
+    fi
+
+    # Bersihkan konfigurasi kernel
     make O=out mrproper || true
 
+    # Hapus file output umum
     rm -f dtb.img dtbo.img
     rm -rf AnyKernel3 *.zip
 
-    [[ -f .config.backup ]] && cp .config.backup out/.config && echo "==> Restore .config dari .config.backup"
+    # Hapus file DTB/DTBO secara aman jika ada
+    if [ -d out/arch/arm64/boot/dts ]; then
+        find out/arch/arm64/boot/dts -type f \( -name "*.dtb" -o -name "*.dtbo" \) -delete
+    fi
+
+    # Restore .config jika ada backup
+    if [[ -f .config.backup ]]; then
+        cp .config.backup out/.config
+        echo "==> Restore .config dari .config.backup"
+    fi
 }
 
 make_defconfig() {
